@@ -28,6 +28,7 @@
     keepBom: false,
     mode: "normal",
     dirty: false,
+    rawInvalid: false,
   };
 
   const dom = {
@@ -42,19 +43,17 @@
     selectAllButton: document.querySelector("#selectAllButton"),
     fileName: document.querySelector("#fileName"),
     fileType: document.querySelector("#fileType"),
-    payloadStat: document.querySelector("#payloadStat"),
     payloadDetail: document.querySelector("#payloadDetail"),
     saveCountStat: document.querySelector("#saveCountStat"),
     containerStat: document.querySelector("#containerStat"),
     containerDetail: document.querySelector("#containerDetail"),
-    dirtyStat: document.querySelector("#dirtyStat"),
-    dirtyDetail: document.querySelector("#dirtyDetail"),
     payloadKind: document.querySelector("#payloadKind"),
     editorHeading: document.querySelector("#editorHeading"),
     normalEditor: document.querySelector("#normalEditor"),
     rawEditorPanel: document.querySelector("#rawEditorPanel"),
     rawEditor: document.querySelector("#rawEditor"),
     rawValidation: document.querySelector("#rawValidation"),
+    syncState: document.querySelector("#syncState"),
     characterCount: document.querySelector("#characterCount"),
     metadataText: document.querySelector("#metadataText"),
     statusBar: document.querySelector("#statusBar"),
@@ -352,7 +351,7 @@
     const row = makeElement("label", "field-row");
     const label = makeElement("span", "field-label");
     label.append(makeElement("strong", "", descriptor.label));
-    label.append(makeElement("span", "field-key", descriptor.path.join(".")));
+    row.title = descriptor.path.join(".");
     const value = getPath(state.object, descriptor.path, descriptor.fallback);
     const kind = inferKind(value, descriptor.kind);
     let input;
@@ -436,8 +435,8 @@
   function renderNormalEditor() {
     clearElement(dom.normalEditor);
     if (!state.isJson || !state.object) {
-      const body = addSection(dom.normalEditor, "Prepared fields unavailable", "This payload is plain text. Use Raw edit to work with it.", { wide: true });
-      body.append(makeElement("div", "empty-hint", "The prepared editor requires a JSON payload."));
+      const body = addSection(dom.normalEditor, "Guided edit unavailable", "This payload is plain text. Use Source JSON to work with it.", { wide: true });
+      body.append(makeElement("div", "empty-hint", "Guided edit requires a JSON payload."));
       return;
     }
 
@@ -545,21 +544,26 @@
 
   function markDirty() {
     state.dirty = true;
+    if (state.mode === "normal" && state.isJson) syncObjectToRaw();
     updateDirtyUI();
     updateCharacterCount();
   }
 
   function updateCharacterCount() {
     let text = state.rawText;
-    if (state.isJson && state.mode === "normal" && state.object) text = JSON.stringify(state.object, null, 2);
+    if (state.mode === "raw") text = dom.rawEditor.value;
+    else if (state.isJson && state.object) text = JSON.stringify(state.object, null, 2);
     dom.characterCount.textContent = `${formatCount(text.length)} characters`;
   }
 
+  function setSyncState(label, tone = "neutral") {
+    if (!dom.syncState) return;
+    dom.syncState.textContent = label;
+    dom.syncState.dataset.tone = tone;
+  }
+
   function updateDirtyUI() {
-    dom.dirtyStat.textContent = state.dirty ? "Edited" : "Ready";
-    dom.dirtyDetail.textContent = state.dirty ? "Export a new verified save" : "No edits yet";
-    const statusCard = dom.dirtyStat.closest(".status-card");
-    if (statusCard) statusCard.dataset.dirty = String(state.dirty);
+    setSyncState(state.rawInvalid ? "Needs valid JSON" : (state.dirty ? "Edited" : "Synced"), state.rawInvalid ? "error" : "success");
   }
 
   function setRawValidation(message, tone = "neutral") {
@@ -567,32 +571,50 @@
     dom.rawValidation.dataset.tone = tone;
   }
 
-  function syncRawFromObject() {
+  function syncObjectToRaw() {
     if (state.isJson && state.object) {
       state.rawText = JSON.stringify(state.object, null, 2);
       dom.rawEditor.value = state.rawText;
+      state.rawInvalid = false;
+      setRawValidation("Source JSON is synced with Guided edit.", "success");
+      setSyncState("Synced", "success");
     }
     updateCharacterCount();
   }
 
+  function syncRawToObject() {
+    if (!state.isJson) return true;
+    try {
+      state.object = JSON.parse(dom.rawEditor.value);
+      state.rawText = dom.rawEditor.value;
+      state.rawInvalid = false;
+      renderNormalEditor();
+      setRawValidation("Valid JSON. Guided edit is up to date.", "success");
+      setSyncState("Synced", "success");
+      updateCharacterCount();
+      return true;
+    } catch (error) {
+      state.rawInvalid = true;
+      setRawValidation(`Needs valid JSON: ${error.message}`, "error");
+      setSyncState("Needs valid JSON", "error");
+      updateCharacterCount();
+      return false;
+    }
+  }
+
   function switchMode(mode) {
     if (mode === "normal" && !state.isJson) {
-      showToast("Prepared fields require a JSON payload. Use Raw edit for this file.", "error");
+      showToast("Guided edit requires a JSON payload. Use Source JSON for this file.", "error");
       return;
     }
     if (mode === "raw") {
-      if (state.mode === "normal") syncRawFromObject();
+      if (state.mode === "normal") syncObjectToRaw();
       dom.rawEditor.value = state.rawText;
-      setRawValidation("Raw text is editable. JSON is checked on export.");
+      if (!state.isJson) setRawValidation("Plain UTF-8 text is ready to edit.", "success");
     } else {
       if (state.isJson && state.mode === "raw") {
-        try {
-          state.object = JSON.parse(dom.rawEditor.value);
-          state.rawText = dom.rawEditor.value;
-          renderNormalEditor();
-        } catch (error) {
-          setRawValidation(`Invalid JSON: ${error.message}`, "error");
-          showToast("Fix the JSON error before leaving Raw edit.", "error");
+        if (!syncRawToObject()) {
+          showToast("Fix the JSON error before leaving Source JSON.", "error");
           return;
         }
       }
@@ -600,7 +622,7 @@
     state.mode = mode;
     dom.normalEditor.hidden = mode !== "normal";
     dom.rawEditorPanel.hidden = mode !== "raw";
-    dom.editorHeading.textContent = mode === "normal" ? "Prepared fields" : "Raw edit";
+    dom.editorHeading.textContent = mode === "normal" ? "Guided edit" : "Source JSON";
     dom.modeButtons.forEach((button) => {
       const active = button.dataset.mode === mode;
       button.classList.toggle("is-active", active);
@@ -613,8 +635,7 @@
     const { container } = state;
     dom.fileName.textContent = state.fileName;
     dom.fileType.textContent = `${state.isJson ? "JSON payload" : "UTF-8 text payload"} · ${formatBytes(state.originalBytes.length)}`;
-    dom.payloadStat.textContent = state.isJson ? "JSON" : "Text";
-    dom.payloadDetail.textContent = `${formatBytes(state.originalPlaintext.length)} decrypted`;
+    dom.payloadDetail.textContent = `${state.isJson ? "JSON" : "Text"} payload · ${formatBytes(state.originalPlaintext.length)} decrypted`;
     dom.saveCountStat.textContent = formatCount(container.saveCount);
     dom.containerStat.textContent = `v${container.version}`;
     dom.containerDetail.textContent = `header ${container.headerLength} bytes`;
@@ -665,6 +686,7 @@
       state.isJson = payload.isJson;
       state.keepBom = payload.keepBom;
       state.dirty = false;
+      state.rawInvalid = false;
       updateLoadedUI();
       setStatus("SUCCESS: compatible Ninja Kiwi container detected and decrypted.", "success");
       showToast("Profile loaded. Changes stay in this browser tab.", "success");
@@ -683,11 +705,7 @@
     if (state.mode === "raw") {
       const text = dom.rawEditor.value;
       if (state.isJson) {
-        try {
-          JSON.parse(text);
-        } catch (error) {
-          throw new Error(`JSON is invalid: ${error.message}`);
-        }
+        if (!syncRawToObject()) throw new Error("Source JSON is invalid. Fix it before creating a save.");
       }
       return encodeText(text, state.keepBom);
     }
@@ -769,6 +787,7 @@
       state.isJson = payload.isJson;
       state.keepBom = payload.keepBom;
       state.dirty = false;
+      state.rawInvalid = false;
       updateLoadedUI();
       setStatus("Re-decrypted the untouched original file.", "success");
     } catch (error) {
@@ -788,6 +807,7 @@
     state.keepBom = false;
     state.mode = "normal";
     state.dirty = false;
+    state.rawInvalid = false;
     dom.fileInput.value = "";
     dom.verifyButton.disabled = true;
     dom.resetButton.disabled = true;
@@ -815,12 +835,21 @@
     markDirty();
     if (state.isJson) {
       try {
-        JSON.parse(state.rawText);
-        setRawValidation("JSON is valid and ready to export.", "success");
+        state.object = JSON.parse(state.rawText);
+        state.rawInvalid = false;
+        renderNormalEditor();
+        setRawValidation("Valid JSON. Guided edit is up to date.", "success");
+        setSyncState("Synced", "success");
       } catch (error) {
-        setRawValidation(`Invalid JSON: ${error.message}`, "error");
+        state.rawInvalid = true;
+        setRawValidation(`Needs valid JSON: ${error.message}`, "error");
+        setSyncState("Needs valid JSON", "error");
       }
-    } else setRawValidation("Plain UTF-8 text is ready to export.", "success");
+    } else {
+      setRawValidation("Plain UTF-8 text is ready to export.", "success");
+      setSyncState("Synced", "success");
+    }
+    updateCharacterCount();
   });
   dom.modeButtons.forEach((button) => button.addEventListener("click", () => switchMode(button.dataset.mode)));
 

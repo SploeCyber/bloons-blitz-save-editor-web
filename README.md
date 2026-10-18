@@ -11,9 +11,9 @@ Client-side web version of the Bloons Blitz `Profile.Save` editor. It follows th
 
 ## Modes
 
-**Prepared fields** provides the sections from the desktop editor: general and currencies, metadata, monkeys, heroes and gear, inventory, missions and FTUE, map progress, upgrades and stickers, loot and rewards, and trading/stats.
+**Guided edit** provides the sections from the desktop editor: general and currencies, metadata, monkeys, heroes and gear, inventory, missions and FTUE, map progress, upgrades and stickers, loot and rewards, and trading/stats.
 
-**Raw edit** exposes the complete decrypted payload. Unknown or newly added game fields remain available here even when they are not represented by a prepared field.
+**Source JSON** exposes the complete decrypted payload. Unknown or newly added game fields remain available here even when they are not represented by a guided field. Both views use one live payload: valid JSON changes in Source JSON update Guided edit immediately, and Guided edit changes update Source JSON immediately.
 
 ## Privacy and safety
 
