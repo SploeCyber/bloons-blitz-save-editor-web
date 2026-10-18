@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Browser-based Bloons Blitz Profile.Save editor. Files stay in your browser.">
+  <title>Blitz Save Lab | Bloons Blitz Profile.Save Editor</title>
+  <link rel="stylesheet" href="src/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./" aria-label="Blitz Save Lab home">
+      <span class="brand-mark" aria-hidden="true">B</span>
+      <span>
+        <strong>Blitz Save Lab</strong>
+        <small>Profile.Save editor</small>
+      </span>
+    </a>
+    <div class="topbar-note">
+      <span class="local-dot" aria-hidden="true"></span>
+      Local-only processing
+    </div>
+  </header>
+
+  <main class="app-shell">
+    <section class="intro-bar" aria-labelledby="page-title">
+      <div>
+        <p class="eyebrow">BLOONS BLITZ / SAVE TOOL</p>
+        <h1 id="page-title">Edit your Profile.Save safely.</h1>
+        <p class="intro-copy">Decrypt, adjust prepared fields, or work directly with the JSON payload. Nothing is uploaded.</p>
+      </div>
+      <div class="crypto-badge" title="The browser implements the same container flow as the reference editor">
+        <span class="badge-kicker">Container</span>
+        <span>PBKDF2 / AES-128 / zlib</span>
+      </div>
+    </section>
+
+    <section id="welcomeView" class="welcome-panel" aria-labelledby="welcome-title">
+      <div class="drop-icon" aria-hidden="true">↥</div>
+      <div>
+        <p class="eyebrow">START HERE</p>
+        <h2 id="welcome-title">Open a Bloons Blitz Profile.Save</h2>
+        <p class="muted">Choose a file or drop it here. The editor detects the Ninja Kiwi container before decrypting.</p>
+        <div class="welcome-actions">
+          <button id="openButton" class="button button-primary" type="button"><span aria-hidden="true">↥</span> Open Profile.Save</button>
+          <span class="file-hint">Supports <code>.Save</code>, <code>.save</code>, and any file with the correct container format.</span>
+        </div>
+      </div>
+      <input id="fileInput" type="file" accept=".save,.Save,*/*" hidden>
+    </section>
+
+    <section id="editorView" class="editor-view" hidden>
+      <div class="file-strip">
+        <div class="file-identity">
+          <span class="file-icon" aria-hidden="true">▣</span>
+          <div>
+            <strong id="fileName">No file loaded</strong>
+            <span id="fileType" class="muted">Waiting for a Profile.Save</span>
+          </div>
+        </div>
+        <div class="toolbar-actions">
+          <button id="verifyButton" class="button button-quiet" type="button" title="Decrypt the original file again" disabled><span aria-hidden="true">✓</span> Verify source</button>
+          <button id="resetButton" class="button button-quiet" type="button" title="Discard edits and decrypt the original again" disabled><span aria-hidden="true">↻</span> Re-decrypt</button>
+          <button id="downloadButton" class="button button-primary" type="button" title="Create and download a verified edited save" disabled><span aria-hidden="true">↓</span> Encrypt &amp; download</button>
+        </div>
+      </div>
+
+      <div class="summary-grid" aria-label="Save summary">
+        <div class="stat-card">
+          <span class="stat-label">Payload</span>
+          <strong id="payloadStat">-</strong>
+          <span id="payloadDetail" class="stat-detail">-</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Save count</span>
+          <strong id="saveCountStat">-</strong>
+          <span class="stat-detail">new export increments it</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Container</span>
+          <strong id="containerStat">-</strong>
+          <span id="containerDetail" class="stat-detail">-</span>
+        </div>
+        <div class="stat-card status-card">
+          <span class="stat-label">Working state</span>
+          <strong id="dirtyStat">Ready</strong>
+          <span id="dirtyDetail" class="stat-detail">No edits yet</span>
+        </div>
+      </div>
+
+      <div class="workspace">
+        <aside class="workspace-sidebar" aria-label="Editor controls">
+          <div class="side-heading">
+            <span class="eyebrow">EDITOR</span>
+            <span id="payloadKind" class="kind-pill">-</span>
+          </div>
+          <div class="mode-switch" role="tablist" aria-label="Editing mode">
+            <button class="mode-button is-active" type="button" role="tab" aria-selected="true" data-mode="normal">
+              <span class="mode-icon" aria-hidden="true">☷</span>
+              <span><strong>Prepared fields</strong><small>Common values</small></span>
+            </button>
+            <button class="mode-button" type="button" role="tab" aria-selected="false" data-mode="raw">
+              <span class="mode-icon" aria-hidden="true">&lt;/&gt;</span>
+              <span><strong>Raw edit</strong><small>Full payload JSON</small></span>
+            </button>
+          </div>
+          <div class="side-rule"></div>
+          <div class="side-note">
+            <span class="note-icon" aria-hidden="true">i</span>
+            <p>Prepared fields cover the same gameplay sections as the reference desktop editor. Raw edit keeps access to every key.</p>
+          </div>
+          <div class="side-note side-note-warning">
+            <span class="note-icon" aria-hidden="true">!</span>
+            <p>Keep the original save untouched. Export a new file, then keep a backup before replacing anything in-game.</p>
+          </div>
+        </aside>
+
+        <section class="editor-panel" aria-label="Save payload editor">
+          <div class="panel-header">
+            <div>
+              <span class="eyebrow">PAYLOAD WORKSPACE</span>
+              <h2 id="editorHeading">Prepared fields</h2>
+            </div>
+            <span id="characterCount" class="character-count">0 characters</span>
+          </div>
+          <div id="normalEditor" class="normal-editor" role="tabpanel" aria-label="Prepared fields editor"></div>
+          <div id="rawEditorPanel" class="raw-editor-panel" role="tabpanel" aria-label="Raw JSON editor" hidden>
+            <div class="raw-toolbar">
+              <span><strong>Decrypted payload</strong> <span class="muted">Edit carefully; JSON is validated on export.</span></span>
+              <button id="selectAllButton" class="button button-quiet button-small" type="button">Select all</button>
+            </div>
+            <textarea id="rawEditor" spellcheck="false" aria-label="Raw decrypted payload"></textarea>
+            <div id="rawValidation" class="raw-validation" aria-live="polite">Ready for raw editing.</div>
+          </div>
+        </section>
+      </div>
+
+      <div id="metadataPanel" class="metadata-panel">
+        <div class="metadata-heading">
+          <div>
+            <span class="eyebrow">CONTAINER DETAILS</span>
+            <h2>Original metadata</h2>
+          </div>
+          <button id="clearButton" class="button button-quiet button-small" type="button" disabled><span aria-hidden="true">×</span> Close file</button>
+        </div>
+        <pre id="metadataText" class="metadata-text">-</pre>
+      </div>
+    </section>
+
+    <div id="statusBar" class="status-bar" data-tone="neutral" role="status" aria-live="polite">
+      <span class="status-light" aria-hidden="true"></span>
+      <span id="statusText">Ready. Your file stays in this browser tab.</span>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <span>Blitz Save Lab</span>
+    <span>Client-side only</span>
+    <a href="https://github.com/MrNukeAlt/Bloons-Blitz-Save-Editor" target="_blank" rel="noreferrer">Reference implementation</a>
+  </footer>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <script src="src/crypto-js.min.js"></script>
+  <script src="src/pako.min.js"></script>
+  <script src="src/app.js"></script>
+</body>
+</html>
