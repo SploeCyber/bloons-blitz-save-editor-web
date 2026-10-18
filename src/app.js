@@ -997,7 +997,12 @@
       fieldDescriptor(["inTransitOrderContext"], "In-transit order context", "", "text"),
     ]);
     const purchaseFields = purchaseFieldDescriptors();
-    addCollection(shop, "Purchases", ["purchases"], { fields: purchaseFields, add: { template: (id) => makePurchase(id, purchaseFields), button: "Add purchase" } });
+    addCollection(shop, "Purchases", ["purchases"], { fields: purchaseFields, add: {
+      catalog: "products",
+      placeholder: "Add product id…",
+      template: (id) => makePurchase(id, purchaseFields),
+      button: "Add purchase",
+    } });
 
     const rank = addSection(grid, "Rank, rating & nexus");
     addFields(rank, [
@@ -1070,8 +1075,8 @@
 
   function purchaseFieldDescriptors() {
     return [
-      { path: ["id"], label: "Purchase id", fallback: "", kind: "text" },
-      { path: ["productId"], label: "Product id", fallback: "", kind: "text" },
+      { path: ["id"], label: "Purchase id", fallback: "", kind: "text", catalog: "products" },
+      { path: ["productId"], label: "Product id", fallback: "", kind: "text", catalog: "products" },
       { path: ["purchaseType"], label: "Type", fallback: "", kind: "text" },
       { path: ["price"], label: "Price", fallback: 0, kind: "number" },
       { path: ["currency"], label: "Currency", fallback: "", kind: "text" },
