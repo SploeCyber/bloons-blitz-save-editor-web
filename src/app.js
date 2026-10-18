@@ -316,8 +316,51 @@
     return String(item.id ?? item.Id ?? item.key ?? item.name ?? `Item ${index + 1}`);
   }
 
-  function fieldDescriptor(path, label, fallback, kind) {
-    return { path, label, fallback, kind };
+  const CATALOG = window.BBSE_CATALOG || {};
+
+  function fieldDescriptor(path, label, fallback, kind, options = {}) {
+    return { path, label, fallback, kind, catalog: options.catalog };
+  }
+
+  function catalogLabel(group, identifier) {
+    const list = CATALOG[group];
+    if (!Array.isArray(list)) return null;
+    const hit = list.find((entry) => entry.id === identifier);
+    return hit ? hit.label : null;
+  }
+
+  let listSeq = 0;
+  function buildIdInput(parent, descriptor, value, onChange) {
+    const wrap = makeElement("span", "id-input");
+    const input = document.createElement("input");
+    input.type = "text";
+    input.value = value === null || value === undefined ? "" : String(value);
+    input.spellcheck = false;
+    input.autocomplete = "off";
+    const known = CATALOG[descriptor.catalog] || [];
+    const label = catalogLabel(descriptor.catalog, input.value);
+    if (label) input.title = label;
+
+    if (known.length) {
+      const listId = `ids-${descriptor.catalog}-${(listSeq += 1)}`;
+      const list = document.createElement("datalist");
+      list.id = listId;
+      known.forEach((entry) => {
+        const option = document.createElement("option");
+        option.value = entry.id;
+        option.label = entry.label;
+        list.append(option);
+      });
+      input.setAttribute("list", listId);
+      wrap.append(list);
+    }
+    input.addEventListener("change", () => {
+      const nextLabel = catalogLabel(descriptor.catalog, input.value);
+      input.title = nextLabel || "";
+      onChange(input.value);
+    });
+    wrap.append(input);
+    parent.append(wrap);
   }
 
   function addSection(parent, title, options = {}) {
@@ -334,6 +377,15 @@
     const value = getPath(state.object, descriptor.path, descriptor.fallback);
     const kind = inferKind(value, descriptor.kind);
     let input;
+    if (descriptor.catalog) {
+      buildIdInput(row, descriptor, value, (next) => {
+        setPath(state.object, descriptor.path, next);
+        markDirty();
+      });
+      row.append(label, row.lastChild);
+      parent.append(row);
+      return;
+    }
     if (kind === "boolean") {
       input = document.createElement("input");
       input.type = "checkbox";
@@ -394,9 +446,11 @@
     }
     items.forEach((item, index) => {
       const block = makeElement("div", "item");
-      block.append(makeElement("div", "item-name", itemIdentifier(item, index)));
+      const identifier = itemIdentifier(item, index);
+      const knownName = options.catalog ? catalogLabel(options.catalog, identifier) : null;
+      block.append(makeElement("div", "item-name", knownName || identifier));
       if (options.fields) {
-        const descriptors = options.fields.map((field) => fieldDescriptor([...path, index, field.path], field.label, field.fallback, field.kind));
+        const descriptors = options.fields.map((field) => fieldDescriptor([...path, index, field.path], field.label, field.fallback, field.kind, { catalog: field.catalog }));
         addFields(block, descriptors);
       } else {
         addObjectFields(block, [...path, index], item);
@@ -421,7 +475,7 @@
       fieldDescriptor(["playerLevel"], "Player level", 1, "number"),
       fieldDescriptor(["playerLevelProgress"], "Level progress", 0, "number"),
       fieldDescriptor(["playerPowerLevel"], "Player power level", 1, "number"),
-      fieldDescriptor(["currentHeroId"], "Current hero ID", "", "text"),
+      fieldDescriptor(["currentHeroId"], "Current hero", "", "text", { catalog: "heroes" }),
       fieldDescriptor(["selectedLanguage"], "Language", "English", "text"),
       fieldDescriptor(["completedFirstLevel"], "Completed first level", false, "boolean"),
       fieldDescriptor(["acceptedTermsOfService"], "Accepted terms", false, "boolean"),
@@ -446,21 +500,22 @@
     ]);
 
     const monkeys = addSection(grid, "Monkeys", { wide: true });
-    addCollection(monkeys, "Monkeys", ["monkeys"], { fields: [
+    addCollection(monkeys, "Monkeys", ["monkeys"], { catalog: "monkeys", fields: [
       { path: ["level"], label: "Level", fallback: 1, kind: "number" },
       { path: ["currentXP"], label: "Current XP", fallback: 0, kind: "number" },
+      { path: ["powerLevel"], label: "Power level", fallback: 0, kind: "number" },
     ] });
 
     const heroes = addSection(grid, "Heroes & gear", { wide: true });
-    addCollection(heroes, "Heroes", ["heroes"], { fields: [
+    addCollection(heroes, "Heroes", ["heroes"], { catalog: "heroes", fields: [
       { path: ["level"], label: "Level", fallback: 1, kind: "number" },
       { path: ["heroPowerLevel"], label: "Power level", fallback: 0, kind: "number" },
       { path: ["currentXP"], label: "Current XP", fallback: 0, kind: "number" },
     ] });
-    addCollection(heroes, "Owned gear", ["ownedGear"]);
+    addCollection(heroes, "Owned stickers", ["ownedGear"], { catalog: "stickers" });
 
     const inventory = addSection(grid, "Inventory", { wide: true });
-    addCollection(inventory, "Consumables", ["consumables"]);
+    addCollection(inventory, "Consumables", ["consumables"], { catalog: "consumables" });
     addCollection(inventory, "Toys", ["toys"]);
     addCollection(inventory, "Spent toys", ["spentToys"]);
 
