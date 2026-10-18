@@ -39,25 +39,14 @@
     verifyButton: document.querySelector("#verifyButton"),
     resetButton: document.querySelector("#resetButton"),
     downloadButton: document.querySelector("#downloadButton"),
-    clearButton: document.querySelector("#clearButton"),
-    selectAllButton: document.querySelector("#selectAllButton"),
     fileName: document.querySelector("#fileName"),
-    fileType: document.querySelector("#fileType"),
-    payloadDetail: document.querySelector("#payloadDetail"),
-    saveCountStat: document.querySelector("#saveCountStat"),
-    containerStat: document.querySelector("#containerStat"),
-    containerDetail: document.querySelector("#containerDetail"),
-    payloadKind: document.querySelector("#payloadKind"),
-    editorHeading: document.querySelector("#editorHeading"),
+    fileMeta: document.querySelector("#fileMeta"),
     normalEditor: document.querySelector("#normalEditor"),
     rawEditorPanel: document.querySelector("#rawEditorPanel"),
     rawEditor: document.querySelector("#rawEditor"),
     rawValidation: document.querySelector("#rawValidation"),
     syncState: document.querySelector("#syncState"),
-    characterCount: document.querySelector("#characterCount"),
     metadataText: document.querySelector("#metadataText"),
-    statusBar: document.querySelector("#statusBar"),
-    statusText: document.querySelector("#statusText"),
     toast: document.querySelector("#toast"),
     modeButtons: [...document.querySelectorAll("[data-mode]")],
   };
@@ -71,11 +60,6 @@
 
   function clearElement(element) {
     while (element.firstChild) element.removeChild(element.firstChild);
-  }
-
-  function setStatus(message, tone = "neutral") {
-    dom.statusText.textContent = message;
-    dom.statusBar.dataset.tone = tone;
   }
 
   let toastTimer = null;
@@ -336,21 +320,16 @@
     return { path, label, fallback, kind };
   }
 
-  function addSection(parent, title, description, options = {}) {
-    const section = makeElement("section", `form-section${options.wide ? " section-wide" : ""}`);
-    const heading = makeElement("div", "section-heading");
-    heading.append(makeElement("h3", "", title));
-    if (description) heading.append(makeElement("p", "", description));
-    const body = makeElement("div", "section-body");
-    section.append(heading, body);
+  function addSection(parent, title, options = {}) {
+    const section = makeElement("section", `section${options.wide ? " is-wide" : ""}`);
+    section.append(makeElement("h2", "", title));
     parent.append(section);
-    return body;
+    return section;
   }
 
   function addField(parent, descriptor) {
-    const row = makeElement("label", "field-row");
-    const label = makeElement("span", "field-label");
-    label.append(makeElement("strong", "", descriptor.label));
+    const row = makeElement("label", "field");
+    const label = makeElement("span", "field-label", descriptor.label);
     row.title = descriptor.path.join(".");
     const value = getPath(state.object, descriptor.path, descriptor.fallback);
     const kind = inferKind(value, descriptor.kind);
@@ -358,12 +337,10 @@
     if (kind === "boolean") {
       input = document.createElement("input");
       input.type = "checkbox";
-      input.className = "boolean-input";
       input.checked = Boolean(value);
     } else {
-      input = document.createElement(kind === "number" ? "input" : "input");
+      input = document.createElement("input");
       input.type = kind === "number" ? "number" : "text";
-      input.className = "field-input";
       if (kind === "number") input.step = Number.isInteger(Number(value)) ? "1" : "any";
       if (kind === "list") input.value = Array.isArray(value) ? value.join(", ") : "";
       else input.value = value === null || value === undefined ? "" : String(value);
@@ -397,7 +374,7 @@
   function addObjectFields(parent, objectPath, object, labelPrefix = "") {
     const entries = scalarEntries(object);
     if (!entries.length) {
-      parent.append(makeElement("div", "empty-hint", "No scalar fields in this object."));
+      parent.append(makeElement("div", "empty", "None"));
       return;
     }
     entries.forEach(([key, value]) => {
@@ -408,19 +385,16 @@
 
   function addCollection(parent, title, path, options = {}) {
     const collection = makeElement("div", "collection");
-    collection.append(makeElement("div", "collection-title collection-label", title));
+    collection.append(makeElement("div", "collection-label", title));
     const items = getPath(state.object, path, []);
     if (!Array.isArray(items) || !items.length) {
-      collection.append(makeElement("div", "empty-hint", "No items in this save."));
+      collection.append(makeElement("div", "empty", "None"));
       parent.append(collection);
       return;
     }
     items.forEach((item, index) => {
-      const block = makeElement("div", "collection-block");
-      const heading = makeElement("div", "collection-title");
-      heading.append(makeElement("span", "", itemIdentifier(item, index)));
-      heading.append(makeElement("span", "", `#${index + 1}`));
-      block.append(heading);
+      const block = makeElement("div", "item");
+      block.append(makeElement("div", "item-name", itemIdentifier(item, index)));
       if (options.fields) {
         const descriptors = options.fields.map((field) => fieldDescriptor([...path, index, field.path], field.label, field.fallback, field.kind));
         addFields(block, descriptors);
@@ -434,13 +408,15 @@
 
   function renderNormalEditor() {
     clearElement(dom.normalEditor);
+    const grid = makeElement("div", "form-grid");
+    dom.normalEditor.append(grid);
     if (!state.isJson || !state.object) {
-      const body = addSection(dom.normalEditor, "Guided edit unavailable", "This payload is plain text. Use Source JSON to work with it.", { wide: true });
-      body.append(makeElement("div", "empty-hint", "Guided edit requires a JSON payload."));
+      const section = addSection(grid, "Guided edit unavailable", { wide: true });
+      section.append(makeElement("div", "empty", "This payload is plain text. Use Source JSON instead."));
       return;
     }
 
-    const general = addSection(dom.normalEditor, "General & currencies", "Player state and balances.");
+    const general = addSection(grid, "General & currencies");
     addFields(general, [
       fieldDescriptor(["playerLevel"], "Player level", 1, "number"),
       fieldDescriptor(["playerLevelProgress"], "Level progress", 0, "number"),
@@ -455,7 +431,7 @@
       addField(general, fieldDescriptor(["currencies", key], key, value, "number"));
     });
 
-    const metadata = addSection(dom.normalEditor, "Metadata & info", "Versions, timestamps, and identifiers.");
+    const metadata = addSection(grid, "Metadata & info");
     addFields(metadata, [
       fieldDescriptor(["createdAtDataVersion"], "Created data version", 0, "number"),
       fieldDescriptor(["createdAtGameVersion"], "Created game version", "", "text"),
@@ -469,13 +445,13 @@
       fieldDescriptor(["encountersChecksum"], "Encounters checksum", "", "text"),
     ]);
 
-    const monkeys = addSection(dom.normalEditor, "Monkeys", "Monkey levels and XP.", { wide: true });
+    const monkeys = addSection(grid, "Monkeys", { wide: true });
     addCollection(monkeys, "Monkeys", ["monkeys"], { fields: [
       { path: ["level"], label: "Level", fallback: 1, kind: "number" },
       { path: ["currentXP"], label: "Current XP", fallback: 0, kind: "number" },
     ] });
 
-    const heroes = addSection(dom.normalEditor, "Heroes & gear", "Hero progression and owned gear.", { wide: true });
+    const heroes = addSection(grid, "Heroes & gear", { wide: true });
     addCollection(heroes, "Heroes", ["heroes"], { fields: [
       { path: ["level"], label: "Level", fallback: 1, kind: "number" },
       { path: ["heroPowerLevel"], label: "Power level", fallback: 0, kind: "number" },
@@ -483,46 +459,46 @@
     ] });
     addCollection(heroes, "Owned gear", ["ownedGear"]);
 
-    const inventory = addSection(dom.normalEditor, "Inventory", "Consumables, toys, and spent toys.", { wide: true });
+    const inventory = addSection(grid, "Inventory", { wide: true });
     addCollection(inventory, "Consumables", ["consumables"]);
     addCollection(inventory, "Toys", ["toys"]);
     addCollection(inventory, "Spent toys", ["spentToys"]);
 
-    const missions = addSection(dom.normalEditor, "Missions & FTUE", "Daily missions and first-time user progress.", { wide: true });
+    const missions = addSection(grid, "Missions & FTUE", { wide: true });
     addCollection(missions, "Daily missions", ["profileDailyMissions", "currentMissions"], { fields: [
       { path: ["count"], label: "Count", fallback: 0, kind: "number" },
     ] });
     const ftue = getPath(state.object, ["ftueProgress"], {});
-    const ftueBody = makeElement("div", "collection-block");
-    ftueBody.append(makeElement("div", "collection-title", "FTUE progress"));
-    addObjectFields(ftueBody, ["ftueProgress"], ftue);
-    missions.append(ftueBody);
+    const ftueBlock = makeElement("div", "collection");
+    ftueBlock.append(makeElement("div", "collection-label", "FTUE progress"));
+    addObjectFields(ftueBlock, ["ftueProgress"], ftue);
+    missions.append(ftueBlock);
 
-    const map = addSection(dom.normalEditor, "Map & progress", "Unlock and selection state.");
+    const map = addSection(grid, "Map & progress");
     const lastUnlocked = getPath(state.object, ["lastUnlockedLevel"], {});
     const selectedMap = getPath(state.object, ["selectedMapLevel"], {});
-    const lastBlock = makeElement("div", "collection-block");
-    lastBlock.append(makeElement("div", "collection-title", "Last unlocked level"));
+    const lastBlock = makeElement("div", "collection");
+    lastBlock.append(makeElement("div", "collection-label", "Last unlocked level"));
     addObjectFields(lastBlock, ["lastUnlockedLevel"], lastUnlocked);
     map.append(lastBlock);
-    const selectedBlock = makeElement("div", "collection-block");
-    selectedBlock.append(makeElement("div", "collection-title", "Selected map level"));
+    const selectedBlock = makeElement("div", "collection");
+    selectedBlock.append(makeElement("div", "collection-label", "Selected map level"));
     addObjectFields(selectedBlock, ["selectedMapLevel"], selectedMap);
     map.append(selectedBlock);
 
-    const upgrades = addSection(dom.normalEditor, "Upgrades & stickers", "Lists are comma-separated.");
+    const upgrades = addSection(grid, "Upgrades & stickers");
     addField(upgrades, fieldDescriptor(["upgradesChosenEver"], "Upgrades chosen ever", [], "list"));
     addField(upgrades, fieldDescriptor(["chosenUpgradesPendingFirstTimeBonus"], "Pending first-time bonus", [], "list"));
     addField(upgrades, fieldDescriptor(["stickersUsedEver"], "Stickers used ever", [], "list"));
 
-    const loot = addSection(dom.normalEditor, "Loot & rewards", "Loot boxes and reward tracking.", { wide: true });
+    const loot = addSection(grid, "Loot & rewards", { wide: true });
     addCollection(loot, "Loot boxes", ["lootBoxes"]);
     addCollection(loot, "Loot box keys", ["lootBoxKeys"]);
     addCollection(loot, "Reward tracking", ["rewardTrackingData"], { fields: [
       { path: ["opened"], label: "Opened", fallback: 0, kind: "number" },
     ] });
 
-    const misc = addSection(dom.normalEditor, "Trading, stats & misc", "Run counters and trading state.", { wide: true });
+    const misc = addSection(grid, "Trading, stats & misc", { wide: true });
     addFields(misc, [
       fieldDescriptor(["runCount"], "Run count", 0, "number"),
       fieldDescriptor(["numLevelsCompleted"], "Levels completed", 0, "number"),
@@ -534,8 +510,8 @@
       { path: ["tradingToyId"], label: "Target toy", fallback: "", kind: "text" },
     ] });
     const ads = getPath(state.object, ["adWatchTracking"], {});
-    const adBlock = makeElement("div", "collection-block");
-    adBlock.append(makeElement("div", "collection-title", "Ad watch tracking"));
+    const adBlock = makeElement("div", "collection");
+    adBlock.append(makeElement("div", "collection-label", "Ad watch tracking"));
     Object.entries(ads && typeof ads === "object" ? ads : {}).forEach(([key, value]) => {
       addField(adBlock, fieldDescriptor(["adWatchTracking", key, "numberOfWatchesThisPeriod"], key, value?.numberOfWatchesThisPeriod ?? 0, "number"));
     });
@@ -546,14 +522,6 @@
     state.dirty = true;
     if (state.mode === "normal" && state.isJson) syncObjectToRaw();
     updateDirtyUI();
-    updateCharacterCount();
-  }
-
-  function updateCharacterCount() {
-    let text = state.rawText;
-    if (state.mode === "raw") text = dom.rawEditor.value;
-    else if (state.isJson && state.object) text = JSON.stringify(state.object, null, 2);
-    dom.characterCount.textContent = `${formatCount(text.length)} characters`;
   }
 
   function setSyncState(label, tone = "neutral") {
@@ -579,7 +547,6 @@
       setRawValidation("Source JSON is synced with Guided edit.", "success");
       setSyncState("Synced", "success");
     }
-    updateCharacterCount();
   }
 
   function syncRawToObject() {
@@ -591,13 +558,11 @@
       renderNormalEditor();
       setRawValidation("Valid JSON. Guided edit is up to date.", "success");
       setSyncState("Synced", "success");
-      updateCharacterCount();
       return true;
     } catch (error) {
       state.rawInvalid = true;
       setRawValidation(`Needs valid JSON: ${error.message}`, "error");
       setSyncState("Needs valid JSON", "error");
-      updateCharacterCount();
       return false;
     }
   }
@@ -622,38 +587,34 @@
     state.mode = mode;
     dom.normalEditor.hidden = mode !== "normal";
     dom.rawEditorPanel.hidden = mode !== "raw";
-    dom.editorHeading.textContent = mode === "normal" ? "Guided edit" : "Source JSON";
     dom.modeButtons.forEach((button) => {
       const active = button.dataset.mode === mode;
       button.classList.toggle("is-active", active);
       button.setAttribute("aria-selected", String(active));
     });
-    updateCharacterCount();
   }
 
   function updateLoadedUI() {
     const { container } = state;
     dom.fileName.textContent = state.fileName;
-    dom.fileType.textContent = `${state.isJson ? "JSON payload" : "UTF-8 text payload"} · ${formatBytes(state.originalBytes.length)}`;
-    dom.payloadDetail.textContent = `${state.isJson ? "JSON" : "Text"} payload · ${formatBytes(state.originalPlaintext.length)} decrypted`;
-    dom.saveCountStat.textContent = formatCount(container.saveCount);
-    dom.containerStat.textContent = `v${container.version}`;
-    dom.containerDetail.textContent = `header ${container.headerLength} bytes`;
-    dom.payloadKind.textContent = state.isJson ? "JSON" : "TEXT";
+    dom.fileMeta.textContent = [
+      formatBytes(state.originalBytes.length),
+      state.isJson ? "JSON" : "text",
+      `save #${formatCount(container.saveCount)}`,
+      `v${container.version}`,
+    ].join(" · ");
     dom.metadataText.textContent = metadataSummary(container, state.originalPlaintext);
     dom.editorView.hidden = false;
     dom.welcomeView.hidden = true;
     dom.verifyButton.disabled = false;
     dom.resetButton.disabled = false;
     dom.downloadButton.disabled = false;
-    dom.clearButton.disabled = false;
     dom.modeButtons.find((button) => button.dataset.mode === "normal").setAttribute("aria-disabled", String(!state.isJson));
     renderNormalEditor();
     dom.rawEditor.value = state.rawText;
     state.mode = state.isJson ? "normal" : "raw";
     switchMode(state.mode);
     updateDirtyUI();
-    updateCharacterCount();
   }
 
   function metadataSummary(container, plaintext) {
@@ -673,7 +634,6 @@
   }
 
   function loadBytes(bytes, fileName) {
-    setStatus(`Reading ${fileName}...`);
     try {
       const decoded = decryptSave(bytes, PASSWORD);
       const payload = decodePayload(decoded.plaintext);
@@ -688,10 +648,8 @@
       state.dirty = false;
       state.rawInvalid = false;
       updateLoadedUI();
-      setStatus("SUCCESS: compatible Ninja Kiwi container detected and decrypted.", "success");
       showToast("Profile loaded. Changes stay in this browser tab.", "success");
     } catch (error) {
-      setStatus("ERROR: file could not be detected or decrypted.", "error");
       showToast(error.message || "Could not open this save.", "error");
     }
   }
@@ -753,10 +711,8 @@
       window.setTimeout(() => URL.revokeObjectURL(url), 1000);
       state.dirty = false;
       updateDirtyUI();
-      setStatus(`SUCCESS: ${outputName} was encrypted, verified, and downloaded.`, "success");
       showToast(`Export verified. Save count is now ${verified.container.saveCount}.`, "success");
     } catch (error) {
-      setStatus("ERROR: export was not written.", "error");
       showToast(error.message || "Could not create an edited save.", "error");
     }
   }
@@ -766,10 +722,8 @@
     try {
       const verified = decryptSave(state.originalBytes, PASSWORD);
       if (!bytesEqual(verified.plaintext, state.originalPlaintext)) throw new Error("Decrypted bytes changed unexpectedly.");
-      setStatus("Verification PASSED: the original file decrypts and decompresses correctly.", "success");
       showToast("Original Profile.Save verified.", "success");
     } catch (error) {
-      setStatus("Verification FAILED.", "error");
       showToast(error.message, "error");
     }
   }
@@ -789,9 +743,7 @@
       state.dirty = false;
       state.rawInvalid = false;
       updateLoadedUI();
-      setStatus("Re-decrypted the untouched original file.", "success");
     } catch (error) {
-      setStatus("ERROR: could not re-decrypt the original file.", "error");
       showToast(error.message, "error");
     }
   }
@@ -812,24 +764,16 @@
     dom.verifyButton.disabled = true;
     dom.resetButton.disabled = true;
     dom.downloadButton.disabled = true;
-    dom.clearButton.disabled = true;
     dom.editorView.hidden = true;
     dom.welcomeView.hidden = false;
-    setStatus("Ready. Your file stays in this browser tab.");
   }
 
-  function selectAllRaw() {
-    dom.rawEditor.focus();
-    dom.rawEditor.select();
-  }
 
   dom.openButton.addEventListener("click", () => dom.fileInput.click());
   dom.fileInput.addEventListener("change", () => loadFile(dom.fileInput.files[0]));
   dom.verifyButton.addEventListener("click", verifySource);
   dom.resetButton.addEventListener("click", resetToSource);
   dom.downloadButton.addEventListener("click", downloadEditedSave);
-  dom.clearButton.addEventListener("click", clearAll);
-  dom.selectAllButton.addEventListener("click", selectAllRaw);
   dom.rawEditor.addEventListener("input", () => {
     state.rawText = dom.rawEditor.value;
     markDirty();
@@ -849,7 +793,6 @@
       setRawValidation("Plain UTF-8 text is ready to export.", "success");
       setSyncState("Synced", "success");
     }
-    updateCharacterCount();
   });
   dom.modeButtons.forEach((button) => button.addEventListener("click", () => switchMode(button.dataset.mode)));
 
