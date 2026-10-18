@@ -322,6 +322,8 @@
     return { path, label, fallback, kind, catalog: options.catalog };
   }
 
+  let listSeq = 0;
+
   function catalogLabel(group, identifier) {
     const list = CATALOG[group];
     if (!Array.isArray(list)) return null;
@@ -329,7 +331,125 @@
     return hit ? hit.label : null;
   }
 
-  let listSeq = 0;
+  function dotnetTicksNow() {
+    return (DOTNET_UNIX_EPOCH_UTC + BigInt(Date.now()) * DOTNET_TICKS_PER_MS).toString();
+  }
+
+  const TEMPLATES = {
+    hero: (id) => ({
+      id,
+      overallXPSpent: 0,
+      currentXP: 0,
+      level: 1,
+      availableStickerSquares: 0,
+      unlockedStickerSquares: [],
+      pending: -1,
+      levelChoices: ["default"],
+      newlyUnlockedInGameUpgrades: [],
+      loadout_: [],
+      heroPowerLevel: 0,
+    }),
+    monkey: (id) => ({
+      id,
+      overallXPSpent: 0,
+      currentXP: 0,
+      level: 1,
+      pending: -1,
+      powerLevel: 0,
+      levelChoices: ["default"],
+      newlyUnlockedInGameUpgrades: [],
+    }),
+    sticker: (id) => ({ id, unlockTime: dotnetTicksNow(), level: 1 }),
+    toy: (id) => ({ id, count: 1 }),
+    consumable: (id) => ({ id, count: 1 }),
+    trade: () => ({ offeringToyId: "", offeringAmount: 1, tradingToyId: "", tradingAmount: 1 }),
+  };
+
+  function attachDatalist(input, group, parent) {
+    const known = CATALOG[group] || [];
+    if (!known.length) return;
+    const listId = `dl-${group}-${(listSeq += 1)}`;
+    const list = document.createElement("datalist");
+    list.id = listId;
+    known.forEach((entry) => {
+      const option = document.createElement("option");
+      option.value = entry.id;
+      option.label = entry.label;
+      list.append(option);
+    });
+    input.setAttribute("list", listId);
+    (parent || input.parentNode || input).append(list);
+  }
+
+  function ensureArray(path) {
+    const current = getPath(state.object, path, null);
+    if (Array.isArray(current)) return current;
+    const created = [];
+    setPath(state.object, path, created);
+    return created;
+  }
+
+  function addIdList(parent, path, label, catalogGroup) {
+    const wrap = makeElement("div", "list-editor");
+    wrap.title = path.join(".");
+    const head = makeElement("div", "field");
+    head.append(makeElement("span", "field-label", label));
+    wrap.append(head);
+    const chips = makeElement("div", "chips");
+    wrap.append(chips);
+    parent.append(wrap);
+
+    const renderChips = () => {
+      clearElement(chips);
+      const list = ensureArray(path);
+      if (!list.length) chips.append(makeElement("span", "empty", "None"));
+      list.forEach((value, index) => {
+        const chip = makeElement("span", "chip");
+        const knownLabel = catalogLabel(catalogGroup, value);
+        chip.append(makeElement("span", "chip-text", knownLabel ? `${knownLabel}` : String(value)));
+        chip.title = String(value);
+        const remove = makeElement("button", "chip-x", "×");
+        remove.type = "button";
+        remove.title = "Remove";
+        remove.addEventListener("click", () => {
+          ensureArray(path).splice(index, 1);
+          markDirty();
+          renderChips();
+        });
+        chip.append(remove);
+        chips.append(chip);
+      });
+      const adder = makeElement("div", "chip-add");
+      const input = document.createElement("input");
+      input.type = "text";
+      input.placeholder = "Add id…";
+      input.spellcheck = false;
+      input.autocomplete = "off";
+      const button = makeElement("button", "chip-add-btn", "Add");
+      button.type = "button";
+      adder.append(input, button);
+      attachDatalist(input, catalogGroup, adder);
+      chips.append(adder);
+      const commit = () => {
+        const value = input.value.trim();
+        if (!value) return;
+        ensureArray(path).push(value);
+        markDirty();
+        renderChips();
+      };
+      button.addEventListener("click", commit);
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          commit();
+        }
+      });
+      adder.append(input, button);
+      chips.append(adder);
+    };
+    renderChips();
+  }
+
   function buildIdInput(parent, descriptor, value, onChange) {
     const wrap = makeElement("span", "id-input");
     const input = document.createElement("input");
@@ -439,16 +559,21 @@
     const collection = makeElement("div", "collection");
     collection.append(makeElement("div", "collection-label", title));
     const items = getPath(state.object, path, []);
-    if (!Array.isArray(items) || !items.length) {
-      collection.append(makeElement("div", "empty", "None"));
+    if (!Array.isArray(items)) {
+      collection.append(makeElement("div", "empty", "Not a list"));
       parent.append(collection);
       return;
     }
+    if (!items.length) collection.append(makeElement("div", "empty", "None"));
     items.forEach((item, index) => {
       const block = makeElement("div", "item");
       const identifier = itemIdentifier(item, index);
       const knownName = options.catalog ? catalogLabel(options.catalog, identifier) : null;
       block.append(makeElement("div", "item-name", knownName || identifier));
+      if (options.catalog && item && typeof item === "object" && (options.idKey || "id") in item) {
+        const key = options.idKey || "id";
+        addField(block, fieldDescriptor([...path, index, key], "ID", identifier, "text", { catalog: options.catalog }));
+      }
       if (options.fields) {
         const descriptors = options.fields.map((field) => fieldDescriptor([...path, index, field.path], field.label, field.fallback, field.kind, { catalog: field.catalog }));
         addFields(block, descriptors);
@@ -457,7 +582,50 @@
       }
       collection.append(block);
     });
+    if (options.add) addCollectionBar(collection, path, options.add, options.fields);
     parent.append(collection);
+  }
+
+  function addCollectionBar(collection, path, add, fields) {
+    const bar = makeElement("div", "collection-add");
+    const input = document.createElement("input");
+    input.type = "text";
+    input.placeholder = add.placeholder || "Add id…";
+    input.spellcheck = false;
+    input.autocomplete = "off";
+    input.className = "field-input";
+    const button = makeElement("button", "chip-add-btn", add.button || "Add");
+    button.type = "button";
+    bar.append(input, button);
+    if (add.catalog) attachDatalist(input, add.catalog, bar);
+    const commit = () => {
+      const value = input.value.trim();
+      if (!value) return;
+      const list = ensureArray(path);
+      if (add.template) list.push(add.template(value));
+      else if (fields) {
+        const item = {};
+        fields.forEach((field) => {
+          const target = field.path.length === 1 ? item : (item[field.path[0]] ??= {});
+          const leaf = field.path[field.path.length - 1];
+          target[leaf] = field.fallback;
+        });
+        item[fields[0].path[0]] = value;
+        list.push(item);
+      } else list.push(value);
+      input.value = "";
+      markDirty();
+      renderNormalEditor();
+    };
+    button.addEventListener("click", commit);
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        commit();
+      }
+    });
+    bar.append(input, button);
+    collection.append(bar);
   }
 
   function renderNormalEditor() {
@@ -504,20 +672,32 @@
       { path: ["level"], label: "Level", fallback: 1, kind: "number" },
       { path: ["currentXP"], label: "Current XP", fallback: 0, kind: "number" },
       { path: ["powerLevel"], label: "Power level", fallback: 0, kind: "number" },
-    ] });
+    ], add: { catalog: "monkeys", template: TEMPLATES.monkey, button: "Add monkey" } });
 
     const heroes = addSection(grid, "Heroes & gear", { wide: true });
     addCollection(heroes, "Heroes", ["heroes"], { catalog: "heroes", fields: [
       { path: ["level"], label: "Level", fallback: 1, kind: "number" },
       { path: ["heroPowerLevel"], label: "Power level", fallback: 0, kind: "number" },
       { path: ["currentXP"], label: "Current XP", fallback: 0, kind: "number" },
-    ] });
-    addCollection(heroes, "Owned stickers", ["ownedGear"], { catalog: "stickers" });
+      { path: ["overallXPSpent"], label: "XP spent", fallback: 0, kind: "number" },
+      { path: ["pending"], label: "Pending level", fallback: -1, kind: "number" },
+      { path: ["availableStickerSquares"], label: "Sticker squares", fallback: 0, kind: "number" },
+    ], add: { catalog: "heroes", template: TEMPLATES.hero, button: "Unlock hero" } });
+    addCollection(heroes, "Owned stickers", ["ownedGear"], { catalog: "stickers", fields: [
+      { path: ["level"], label: "Level", fallback: 1, kind: "number" },
+    ], add: { catalog: "stickers", template: TEMPLATES.sticker, button: "Unlock sticker" } });
 
     const inventory = addSection(grid, "Inventory", { wide: true });
-    addCollection(inventory, "Consumables", ["consumables"], { catalog: "consumables" });
-    addCollection(inventory, "Toys", ["toys"]);
-    addCollection(inventory, "Spent toys", ["spentToys"]);
+    addCollection(inventory, "Consumables", ["consumables"], { catalog: "consumables", fields: [
+      { path: ["count"], label: "Count", fallback: 0, kind: "number" },
+    ], add: { catalog: "consumables", template: TEMPLATES.consumable, button: "Add consumable" } });
+    addCollection(inventory, "Toys", ["toys"], { catalog: "toys", fields: [
+      { path: ["count"], label: "Count", fallback: 0, kind: "number" },
+    ], add: { catalog: "toys", template: TEMPLATES.toy, button: "Add toy" } });
+    addCollection(inventory, "Spent toys", ["spentToys"], { catalog: "toys", fields: [
+      { path: ["count"], label: "Count", fallback: 0, kind: "number" },
+    ], add: { catalog: "toys", template: TEMPLATES.toy, button: "Add spent toy" } });
+
 
     const missions = addSection(grid, "Missions & FTUE", { wide: true });
     addCollection(missions, "Daily missions", ["profileDailyMissions", "currentMissions"], { fields: [
@@ -541,10 +721,12 @@
     addObjectFields(selectedBlock, ["selectedMapLevel"], selectedMap);
     map.append(selectedBlock);
 
-    const upgrades = addSection(grid, "Upgrades & stickers");
-    addField(upgrades, fieldDescriptor(["upgradesChosenEver"], "Upgrades chosen ever", [], "list"));
-    addField(upgrades, fieldDescriptor(["chosenUpgradesPendingFirstTimeBonus"], "Pending first-time bonus", [], "list"));
-    addField(upgrades, fieldDescriptor(["stickersUsedEver"], "Stickers used ever", [], "list"));
+    const upgrades = addSection(grid, "Upgrades & stickers", { wide: true });
+    addIdList(upgrades, ["upgradesChosenEver"], "Upgrades chosen ever", "upgrades");
+    addIdList(upgrades, ["chosenUpgradesPendingFirstTimeBonus"], "Pending first-time bonus", "upgrades");
+    addIdList(upgrades, ["stickersUsedEver"], "Stickers used ever", "stickers");
+    addIdList(upgrades, ["chosenStickersPendingFirstTimeBonus"], "Sticker bonus pending", "stickers");
+    addIdList(inventory, ["toysViewed"], "Toys viewed", "toys");
 
     const loot = addSection(grid, "Loot & rewards", { wide: true });
     addCollection(loot, "Loot boxes", ["lootBoxes"]);
@@ -558,12 +740,17 @@
       fieldDescriptor(["runCount"], "Run count", 0, "number"),
       fieldDescriptor(["numLevelsCompleted"], "Levels completed", 0, "number"),
       fieldDescriptor(["numGamesQuit"], "Games quit", 0, "number"),
+      fieldDescriptor(["stats", "winStreak"], "Win streak", 0, "number"),
       fieldDescriptor(["lastToyTradingResetTime"], "Toy trading reset", "", "text"),
+      fieldDescriptor(["lastSeenTradeEventOffered"], "Last trade event", "", "text"),
     ]);
     addCollection(misc, "Hero trading toys", ["heroTradingToys"], { fields: [
-      { path: ["offeringToyId"], label: "Offering toy", fallback: "", kind: "text" },
-      { path: ["tradingToyId"], label: "Target toy", fallback: "", kind: "text" },
-    ] });
+      { path: ["offeringToyId"], label: "Offering toy", fallback: "", kind: "text", catalog: "toys" },
+      { path: ["offeringAmount"], label: "Offering amount", fallback: 1, kind: "number" },
+      { path: ["tradingToyId"], label: "Target toy", fallback: "", kind: "text", catalog: "toys" },
+      { path: ["tradingAmount"], label: "Target amount", fallback: 1, kind: "number" },
+    ], add: { template: TEMPLATES.trade, button: "Add trade" } });
+
     const ads = getPath(state.object, ["adWatchTracking"], {});
     const adBlock = makeElement("div", "collection");
     adBlock.append(makeElement("div", "collection-label", "Ad watch tracking"));
@@ -571,7 +758,77 @@
       addField(adBlock, fieldDescriptor(["adWatchTracking", key, "numberOfWatchesThisPeriod"], key, value?.numberOfWatchesThisPeriod ?? 0, "number"));
     });
     misc.append(adBlock);
+
+    const shop = addSection(grid, "Shop & purchases");
+    addFields(shop, [
+      fieldDescriptor(["orderInTransit"], "Order in transit", false, "boolean"),
+      fieldDescriptor(["inTransitOrderID"], "In-transit order ID", "", "text"),
+      fieldDescriptor(["inTransitOrderContext"], "In-transit order context", "", "text"),
+    ]);
+    const purchaseFields = purchaseFieldDescriptors();
+    addCollection(shop, "Purchases", ["purchases"], { fields: purchaseFields, add: { template: (id) => makePurchase(id, purchaseFields), button: "Add purchase" } });
+
+    const rank = addSection(grid, "Rank, rating & nexus");
+    addFields(rank, [
+      fieldDescriptor(["playerRank", "xp"], "Rank XP", 0, "number"),
+      fieldDescriptor(["playerRank", "level"], "Rank level", 1, "number"),
+      fieldDescriptor(["playerRank", "levelCap"], "Rank level cap", 1, "number"),
+      fieldDescriptor(["rating", "significantEventCount"], "Rating events", 0, "number"),
+      fieldDescriptor(["rating", "appUseCount"], "Rating app uses", 0, "number"),
+      fieldDescriptor(["rating", "promptCount"], "Rating prompts", 0, "number"),
+      fieldDescriptor(["rating", "ratingPromptLastSeenTime"], "Rating last prompt", "", "text"),
+      fieldDescriptor(["rating", "ratingLastPromptVersion"], "Rating prompt version", "", "text"),
+      fieldDescriptor(["rating", "neverPromptAgain"], "Never prompt again", false, "boolean"),
+      fieldDescriptor(["nexus", "creatorId"], "Nexus creator ID", "", "text"),
+      fieldDescriptor(["nexus", "isValid"], "Nexus valid", false, "boolean"),
+    ]);
+
+    const daily = addSection(grid, "Daily & energy");
+    addFields(daily, [
+      fieldDescriptor(["dailyEnergyAdWatchCount"], "Energy ad count", 0, "number"),
+      fieldDescriptor(["dailyEnergyAdWatchResetTime"], "Energy ad reset", 0, "number"),
+      fieldDescriptor(["lastGeneratedLivesAt"], "Lives generated at", "", "text"),
+      fieldDescriptor(["lastDailyMissionResetTime"], "Missions reset at", "", "text"),
+      fieldDescriptor(["profileDailyMissions", "expiryTime"], "Mission expiry", 0, "number"),
+      fieldDescriptor(["profileDailyMissions", "hasClaimedToday"], "Claimed today", false, "boolean"),
+      fieldDescriptor(["profileDailyMissions", "hasClaimedNumber"], "Days claimed", 0, "number"),
+    ]);
+
+    const accolades = addSection(grid, "Accolades & stats", { wide: true });
+    const accoladeData = getPath(state.object, ["accoladesProgress"], {});
+    const accoladeEntries = Object.entries(accoladeData && typeof accoladeData === "object" ? accoladeData : {});
+    if (!accoladeEntries.length) accolades.append(makeElement("div", "empty", "None"));
+    accoladeEntries.forEach(([key, entry]) => {
+      const bare = key.replace(/^(accolade|gameStat)\./, "");
+      const words = bare.replace(/([a-z0-9])([A-Z])/g, "$1 $2").split(" ");
+      const label = words.map((word, index) => (index === 0
+        ? word.charAt(0).toUpperCase() + word.slice(1)
+        : word.charAt(0).toLowerCase() + word.slice(1))).join(" ");
+      addField(accolades, fieldDescriptor(["accoladesProgress", key, "progress"], label, entry?.progress ?? 0, "number"));
+    });
   }
+
+  function purchaseFieldDescriptors() {
+    return [
+      { path: ["id"], label: "Purchase id", fallback: "", kind: "text" },
+      { path: ["productId"], label: "Product id", fallback: "", kind: "text" },
+      { path: ["purchaseType"], label: "Type", fallback: "", kind: "text" },
+      { path: ["price"], label: "Price", fallback: 0, kind: "number" },
+      { path: ["currency"], label: "Currency", fallback: "", kind: "text" },
+      { path: ["timestamp"], label: "Timestamp", fallback: "", kind: "text" },
+      { path: ["receipt"], label: "Receipt", fallback: "", kind: "text" },
+    ];
+  }
+
+  function makePurchase(id, fields) {
+    const item = {};
+    fields.forEach((field) => {
+      const leaf = field.path[field.path.length - 1];
+      item[leaf] = leaf === "id" ? id : field.fallback;
+    });
+    return item;
+  }
+
 
   function markDirty() {
     state.dirty = true;

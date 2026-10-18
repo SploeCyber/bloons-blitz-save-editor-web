@@ -177,6 +177,28 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .item .field { padding: 4px 0; }
 .empty { padding: 8px 0; color: var(--ink-3); font-size: 12px; }
 
+.chips { display: flex; flex-wrap: wrap; gap: 4px 6px; margin-top: 4px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 6px 2px 8px; border-radius: 999px;
+  background: var(--subtle); border: 1px solid var(--line-2);
+  font-family: var(--mono); font-size: 11px; color: var(--ink);
+}
+.chip-text { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip-x { background: none; border: 0; color: var(--ink-3); cursor: pointer; font-size: 13px; line-height: 1; padding: 0 2px; }
+.chip-x:hover { color: var(--danger); }
+.chip-add { display: flex; gap: 4px; margin-top: 6px; }
+.chip-add input { flex: 1; min-width: 0; }
+.chip-add-btn {
+  border: 1px solid var(--line-2); background: var(--bg); color: var(--ink);
+  border-radius: 5px; padding: 3px 10px; font-size: 12px; cursor: pointer;
+}
+.chip-add-btn:hover { background: var(--subtle); }
+
+.collection-add { margin-top: 6px; }
+.list-editor { margin-top: 6px; }
+.list-editor .field { display: block; }
+
 .raw-editor {
   display: block;
   width: 100%;
