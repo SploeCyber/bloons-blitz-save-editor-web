@@ -16,6 +16,8 @@
   const PBKDF2_ITERATIONS = 10;
   const DOTNET_UNIX_EPOCH_UTC = 5233041986427387904n;
   const DOTNET_TICKS_PER_MS = 10000n;
+  const MAX_ENTITY_LEVEL = 20;
+  const MAX_RANK_LEVEL = 49;
 
   const state = {
     fileName: "",
@@ -46,6 +48,8 @@
     rawEditor: document.querySelector("#rawEditor"),
     rawValidation: document.querySelector("#rawValidation"),
     syncState: document.querySelector("#syncState"),
+    searchInput: document.querySelector("#searchInput"),
+    searchCount: document.querySelector("#searchCount"),
     metadataText: document.querySelector("#metadataText"),
     toast: document.querySelector("#toast"),
     modeButtons: [...document.querySelectorAll("[data-mode]")],
@@ -490,6 +494,93 @@
     return section;
   }
 
+  function quickAction(parent, label, hint, run) {
+    const button = makeElement("button", "quick-action");
+    button.type = "button";
+    button.append(makeElement("span", "quick-action-label", label));
+    if (hint) button.append(makeElement("span", "quick-action-hint", hint));
+    button.addEventListener("click", run);
+    parent.append(button);
+    return button;
+  }
+
+  function addQuickActions(parent) {
+    const wrap = makeElement("div", "quick-actions");
+    const existingIds = (path, idKey = "id") => {
+      const list = getPath(state.object, path, []);
+      return new Set((Array.isArray(list) ? list : []).map((item) => item && item[idKey]).filter(Boolean));
+    };
+
+    const missing = (path, catalog, idKey = "id") => (catalog || [])
+      .filter((entry) => !existingIds(path, idKey).has(entry.id))
+      .map((entry) => entry.id);
+
+    quickAction(wrap, "Unlock every hero", "adds missing heroes", () => {
+      const heroes = missing(["heroes"], CATALOG.heroes);
+      heroes.forEach((id) => ensureArray(["heroes"]).push(TEMPLATES.hero(id)));
+      finishQuick(heroes.length, "hero");
+    });
+
+    quickAction(wrap, "Unlock every monkey", "adds missing monkeys", () => {
+      const monkeys = missing(["monkeys"], CATALOG.monkeys);
+      monkeys.forEach((id) => ensureArray(["monkeys"]).push(TEMPLATES.monkey(id)));
+      finishQuick(monkeys.length, "monkey");
+    });
+
+    quickAction(wrap, "Unlock every sticker", "adds missing stickers", () => {
+      const stickers = missing(["ownedGear"], CATALOG.stickers);
+      stickers.forEach((id) => ensureArray(["ownedGear"]).push(TEMPLATES.sticker(id)));
+      // "Used ever" means the sticker has been equipped at least once, so every
+      // catalog entry belongs there once the whole set is unlocked.
+      (CATALOG.stickers || []).forEach((entry) => {
+        ["stickersUsedEver", "chosenStickersPendingFirstTimeBonus"].forEach((path) => {
+          const list = ensureArray(path);
+          if (!list.includes(entry.id)) list.push(entry.id);
+        });
+      });
+      finishQuick(stickers.length, "sticker");
+    });
+
+    quickAction(wrap, "Max every level", "levels, power and XP", () => {
+      let touched = 0;
+      const bump = (list, fields, value) => {
+        (Array.isArray(list) ? list : []).forEach((item) => {
+          if (!item || typeof item !== "object") return;
+          fields.forEach((field) => {
+            if (typeof item[field] === "number") item[field] = value;
+          });
+          touched += 1;
+        });
+      };
+      bump(state.object.heroes, ["level", "heroPowerLevel"], MAX_ENTITY_LEVEL);
+      bump(state.object.monkeys, ["level", "powerLevel"], MAX_ENTITY_LEVEL);
+      const rank = getPath(state.object, ["playerRank"], {});
+      rank.level = MAX_RANK_LEVEL;
+      rank.levelCap = MAX_RANK_LEVEL;
+      rank.xp = 9999999;
+      ["playerLevel", "playerPowerLevel", "playerLevelProgress"].forEach((key) => {
+        if (typeof state.object[key] === "number") state.object[key] = MAX_ENTITY_LEVEL;
+      });
+      finishQuick(touched, "unit");
+    });
+
+    quickAction(wrap, "Refill currencies", "money, stones, lives", () => {
+      const currencies = getPath(state.object, ["currencies"], {});
+      currencies.monkeyMoney = 9999999;
+      currencies.bloonStones = 9999;
+      currencies.lives = 9999;
+      finishQuick(Object.keys(currencies).length, "currency");
+    });
+
+    parent.append(wrap);
+  }
+
+  function finishQuick(count, noun) {
+    markDirty();
+    renderNormalEditor();
+    showToast(count > 0 ? `Updated ${count} ${noun}${count === 1 ? "" : "s"}.` : `Nothing to change.`, count > 0 ? "success" : "neutral");
+  }
+
   function addField(parent, descriptor) {
     const row = makeElement("label", "field");
     const label = makeElement("span", "field-label", descriptor.label);
@@ -628,6 +719,140 @@
     collection.append(bar);
   }
 
+  function addMapProgression(parent) {
+    const mapCatalog = (CATALOG.map && CATALOG.map.biomes) || [];
+    if (!mapCatalog.length) return;
+
+    const wrap = makeElement("div", "collection");
+    wrap.append(makeElement("div", "collection-label", "Map progression"));
+
+    const biomes = ensureArray(["mapData", "unlockedMapBiomes"]);
+    const biomeIndex = new Map();
+    biomes.forEach((entry, index) => {
+      if (entry && entry.Id) biomeIndex.set(entry.Id, { entry, index });
+    });
+
+    const bar = makeElement("div", "collection-add");
+    const unlockAll = makeElement("button", "chip-add-btn", "Unlock every biome and level");
+    unlockAll.type = "button";
+    unlockAll.addEventListener("click", () => {
+      let addedBiomes = 0;
+      let addedRoutes = 0;
+      let addedLevels = 0;
+      mapCatalog.forEach((biome) => {
+        let record = biomeIndex.get(biome.id);
+        if (!record) {
+          const entry = { Id: biome.id, unlockedRoutes: [], unlockedSpecialLevels: {} };
+          ensureArray(["mapData", "unlockedMapBiomes"]).push(entry);
+          record = { entry, index: ensureArray(["mapData", "unlockedMapBiomes"]).length - 1 };
+          biomeIndex.set(biome.id, record);
+          addedBiomes += 1;
+        }
+        const routes = ensureArray(["mapData", "unlockedMapBiomes", record.index, "unlockedRoutes"]);
+        const routeIndex = new Map();
+        routes.forEach((route, index) => {
+          if (route && route.Id) routeIndex.set(route.Id, index);
+        });
+        biome.routes.forEach((route) => {
+          let routePos = routeIndex.get(route.id);
+          if (routePos === undefined) {
+            routes.push({ Id: route.id, unlockedLevels: [] });
+            routePos = routes.length - 1;
+            routeIndex.set(route.id, routePos);
+            addedRoutes += 1;
+          }
+          const levels = ensureArray(["mapData", "unlockedMapBiomes", record.index, "unlockedRoutes", routePos, "unlockedLevels"]);
+          for (let index = levels.length; index < route.levels; index += 1) {
+            levels.push(makeUnlockedLevel(index));
+            addedLevels += 1;
+          }
+        });
+      });
+      markDirty();
+      renderNormalEditor();
+      showToast(`Unlocked ${addedBiomes} biome(s), ${addedRoutes} route(s), ${addedLevels} level(s).`, "success");
+    });
+    bar.append(unlockAll);
+    wrap.append(bar);
+
+    mapCatalog.forEach((biome) => {
+      const record = biomeIndex.get(biome.id);
+      const block = makeElement("div", "item");
+      const unlockedRoutes = record ? getPath(state.object, ["mapData", "unlockedMapBiomes", record.index, "unlockedRoutes"], []) : [];
+      const unlockedLevels = (Array.isArray(unlockedRoutes) ? unlockedRoutes : [])
+        .reduce((total, route) => total + (Array.isArray(route.unlockedLevels) ? route.unlockedLevels.length : 0), 0);
+      const totalLevels = biome.routes.reduce((total, route) => total + route.levels, 0);
+      block.append(makeElement("div", "item-name", `${biome.label} · ${unlockedLevels}/${totalLevels} levels`));
+
+      const rows = makeElement("div", "map-rows");
+      biome.routes.forEach((route) => {
+        const routePos = Array.isArray(unlockedRoutes)
+          ? unlockedRoutes.findIndex((entry) => entry && entry.Id === route.id)
+          : -1;
+        const row = makeElement("div", "map-row");
+        const rowTitle = makeElement("span", "map-row-title", route.label);
+        row.append(rowTitle);
+        if (routePos === -1) {
+          const button = makeElement("button", "chip-add-btn", "Unlock");
+          button.type = "button";
+          button.addEventListener("click", () => {
+            if (!biomeIndex.has(biome.id)) {
+              ensureArray(["mapData", "unlockedMapBiomes"]).push({ Id: biome.id, unlockedRoutes: [], unlockedSpecialLevels: {} });
+              biomeIndex.set(biome.id, { index: ensureArray(["mapData", "unlockedMapBiomes"]).length - 1 });
+            }
+            const target = biomeIndex.get(biome.id).index;
+            const levels = [];
+            for (let index = 0; index < route.levels; index += 1) levels.push(makeUnlockedLevel(index));
+            ensureArray(["mapData", "unlockedMapBiomes", target, "unlockedRoutes"]).push({ Id: route.id, unlockedLevels: levels });
+            markDirty();
+            renderNormalEditor();
+            showToast(`Unlocked ${biome.label} ${route.label}.`, "success");
+          });
+          row.append(button);
+        } else {
+          const levels = getPath(state.object, ["mapData", "unlockedMapBiomes", record.index, "unlockedRoutes", routePos, "unlockedLevels"], []);
+          const count = Array.isArray(levels) ? levels.length : 0;
+          row.append(makeElement("span", "map-row-note", count >= route.levels ? "complete" : `${count}/${route.levels}`));
+          const addLevel = makeElement("button", "chip-add-btn", "Add level");
+          addLevel.type = "button";
+          addLevel.disabled = count >= route.levels;
+          addLevel.addEventListener("click", () => {
+            const target = ensureArray(["mapData", "unlockedMapBiomes", record.index, "unlockedRoutes", routePos, "unlockedLevels"]);
+            target.push(makeUnlockedLevel(count));
+            markDirty();
+            renderNormalEditor();
+          });
+          row.append(addLevel);
+        }
+        rows.append(row);
+      });
+      block.append(rows);
+      wrap.append(block);
+    });
+    parent.append(wrap);
+  }
+
+  function makeUnlockedLevel(index) {
+    return {
+      mainLevelData: {
+        completed: false,
+        bestTime: 0,
+        quickestTime: 0,
+        mostPops: 0,
+        mostXP: 0,
+        fewestDeaths: 0,
+        mostDamage: 0,
+        longestDistance: 0,
+        checkpointsReached: -1,
+        IsNeverAttempted: true,
+      },
+      challengesData: [],
+      viewedUnlockCeremony: false,
+      viewedCompletedCeremony: false,
+      viewedChallengeDetails: false,
+    };
+  }
+
   function renderNormalEditor() {
     clearElement(dom.normalEditor);
     const grid = makeElement("div", "form-grid");
@@ -637,8 +862,13 @@
       section.append(makeElement("div", "empty", "This payload is plain text. Use Source JSON instead."));
       return;
     }
+    buildSections(grid);
+    applyFilter();
+  }
 
+  function buildSections(grid) {
     const general = addSection(grid, "General & currencies");
+    addQuickActions(general);
     addFields(general, [
       fieldDescriptor(["playerLevel"], "Player level", 1, "number"),
       fieldDescriptor(["playerLevelProgress"], "Level progress", 0, "number"),
@@ -709,7 +939,7 @@
     addObjectFields(ftueBlock, ["ftueProgress"], ftue);
     missions.append(ftueBlock);
 
-    const map = addSection(grid, "Map & progress");
+    const map = addSection(grid, "Map & progress", { wide: true });
     const lastUnlocked = getPath(state.object, ["lastUnlockedLevel"], {});
     const selectedMap = getPath(state.object, ["selectedMapLevel"], {});
     const lastBlock = makeElement("div", "collection");
@@ -720,6 +950,7 @@
     selectedBlock.append(makeElement("div", "collection-label", "Selected map level"));
     addObjectFields(selectedBlock, ["selectedMapLevel"], selectedMap);
     map.append(selectedBlock);
+    addMapProgression(map);
 
     const upgrades = addSection(grid, "Upgrades & stickers", { wide: true });
     addIdList(upgrades, ["upgradesChosenEver"], "Upgrades chosen ever", "upgrades");
@@ -806,6 +1037,35 @@
         : word.charAt(0).toLowerCase() + word.slice(1))).join(" ");
       addField(accolades, fieldDescriptor(["accoladesProgress", key, "progress"], label, entry?.progress ?? 0, "number"));
     });
+  }
+
+  function applyFilter() {
+    const query = (dom.searchInput && dom.searchInput.value ? dom.searchInput.value : "").trim().toLowerCase();
+    if (!dom.searchCount) return;
+    if (!query) {
+      [...dom.normalEditor.querySelectorAll("[data-hidden]")].forEach((node) => { node.hidden = false; node.removeAttribute("data-hidden"); });
+      dom.searchCount.hidden = true;
+      dom.searchCount.textContent = "";
+      return;
+    }
+    let visible = 0;
+    dom.normalEditor.querySelectorAll(".section").forEach((section) => {
+      let sectionHits = 0;
+      section.querySelectorAll(".field, .item, .list-editor, .collection-add, .quick-action").forEach((node) => {
+        const haystack = `${node.textContent} ${node.title || ""}`.toLowerCase();
+        const hit = haystack.includes(query);
+        node.hidden = !hit;
+        if (hit) node.removeAttribute("data-hidden");
+        else node.setAttribute("data-hidden", "");
+        if (hit) sectionHits += 1;
+      });
+      const title = (section.querySelector("h2") ? section.querySelector("h2").textContent : "").toLowerCase();
+      const titleHit = title.includes(query);
+      section.hidden = sectionHits === 0 && !titleHit;
+      visible += sectionHits;
+    });
+    dom.searchCount.hidden = false;
+    dom.searchCount.textContent = visible ? `${visible} match${visible === 1 ? "" : "es"}` : "No matches";
   }
 
   function purchaseFieldDescriptors() {
@@ -899,6 +1159,8 @@
     state.mode = mode;
     dom.normalEditor.hidden = mode !== "normal";
     dom.rawEditorPanel.hidden = mode !== "raw";
+    if (dom.searchInput) dom.searchInput.hidden = mode !== "normal";
+    if (dom.searchCount) dom.searchCount.hidden = mode !== "normal" || !dom.searchInput.value.trim();
     dom.modeButtons.forEach((button) => {
       const active = button.dataset.mode === mode;
       button.classList.toggle("is-active", active);
@@ -1107,6 +1369,7 @@
     }
   });
   dom.modeButtons.forEach((button) => button.addEventListener("click", () => switchMode(button.dataset.mode)));
+  if (dom.searchInput) dom.searchInput.addEventListener("input", applyFilter);
 
   ["dragenter", "dragover"].forEach((eventName) => dom.welcomeView.addEventListener(eventName, (event) => {
     event.preventDefault();

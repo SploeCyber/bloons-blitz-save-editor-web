@@ -40,6 +40,8 @@
       <div class="tabs" role="tablist" aria-label="Editor mode">
         <button class="tab is-active" type="button" role="tab" aria-selected="true" data-mode="normal">Guided edit</button>
         <button class="tab" type="button" role="tab" aria-selected="false" data-mode="raw">Source JSON</button>
+        <input id="searchInput" class="search" type="search" placeholder="Filter fields…" aria-label="Filter fields" autocomplete="off" hidden>
+        <span id="searchCount" class="search-count" role="status" aria-live="polite" hidden></span>
         <span id="syncState" class="status" data-tone="neutral" role="status" aria-live="polite"></span>
       </div>
 
