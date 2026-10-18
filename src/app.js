@@ -1278,7 +1278,7 @@
       const newBytes = encryptSave(plaintext, state.container, PASSWORD);
       const verified = assertVerifiedExport(newBytes, plaintext);
       const stem = state.fileName.replace(/\.[^.]+$/, "") || "Profile";
-      const outputName = `${stem}_edited.Save`;
+      const outputName = `${stem}.Save`;
       const blob = new Blob([newBytes], { type: "application/octet-stream" });
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
